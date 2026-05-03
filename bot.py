@@ -15,7 +15,16 @@ ALLOWED_CHANNEL = os.getenv("ALLOWED_CHANNEL_ID")   # Optional: restrict to a ch
 
 # ── Bot setup ──────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+class LubeBot(commands.Bot):
+    async def setup_hook(self):
+        try:
+            synced = await self.tree.sync()
+            print(f"✅  Synced {len(synced)} commands: {[c.name for c in synced]}")
+        except Exception as e:
+            print(f"❌  Sync failed: {e}")
+
+bot = LubeBot(command_prefix="!", intents=intents)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def lubelogger_headers() -> dict:
@@ -64,11 +73,30 @@ def build_vehicle_choices_cache(vehicles: list[dict]) -> list[app_commands.Choic
         for v in vehicles[:25]
     ]
 
+async def add_service_record(vehicle_id: int, odometer: int, description: str,
+                             cost: float, notes: str) -> dict:
+    """POST a new service record to LubeLogger."""
+    payload = {
+        "date": date.today().isoformat(),
+        "odometer": odometer,
+        "description": description,
+        "cost": cost,
+        "notes": notes,
+        "tags": "",
+        "extraFields": [],
+    }
+    async with aiohttp.ClientSession(headers=lubelogger_headers()) as session:
+        async with session.post(
+            f"{LUBELOGGER_URL}/api/vehicle/servicerecords/add?vehicleId={vehicle_id}",
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
 # ── Events ─────────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    print(f"✅  Logged in as {bot.user}  |  Slash commands synced")
+    print(f"✅  Logged in as {bot.user}")
 
 # ── /fuel command ──────────────────────────────────────────────────────────────
 @bot.tree.command(name="fuel", description="Log a fuel-up to LubeLogger")
@@ -119,6 +147,58 @@ async def fuel(
     embed.add_field(name="🪣 Gallons",     value=f"{gallons:.3f}",           inline=True)
     embed.add_field(name="💵 Total Cost",  value=f"${total_cost:.2f}",       inline=True)
     embed.add_field(name="📊 Price/Gal",   value=f"${ppg:.3f}",              inline=True)
+    embed.set_footer(text=f"Date: {date.today().isoformat()}")
+
+    await interaction.followup.send(embed=embed)
+
+
+# ── /service command ──────────────────────────────────────────────────────────
+@bot.tree.command(name="service", description="Log a service record to LubeLogger")
+@app_commands.describe(
+    car_id      = "Vehicle ID from LubeLogger (use /cars to list)",
+    odometer    = "Current odometer reading",
+    description = "What was done (e.g. Oil Change) — can be left blank",
+    cost        = "Total cost of the service",
+    notes       = "Any additional notes — can be left blank",
+)
+async def service(
+    interaction: discord.Interaction,
+    car_id     : int,
+    odometer   : int,
+    cost       : float,
+    description: str = "",
+    notes      : str = "",
+):
+    if ALLOWED_CHANNEL and str(interaction.channel_id) != ALLOWED_CHANNEL:
+        await interaction.response.send_message(
+            "⛔  This command is only allowed in the designated channel.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    try:
+        result = await add_service_record(car_id, odometer, description, cost, notes)
+    except aiohttp.ClientResponseError as e:
+        await interaction.followup.send(
+            f"❌  LubeLogger returned **HTTP {e.status}**: {e.message}"
+        )
+        return
+    except Exception as e:
+        await interaction.followup.send(f"❌  Unexpected error: `{e}`")
+        return
+
+    embed = discord.Embed(
+        title="🔧  Service Record Logged!",
+        color=discord.Color.blue(),
+    )
+    embed.add_field(name="🚗 Vehicle ID",   value=f"`{car_id}`",          inline=True)
+    embed.add_field(name="🔢 Odometer",     value=f"{odometer:,}",        inline=True)
+    embed.add_field(name="💵 Cost",         value=f"${cost:.2f}",         inline=True)
+    if description:
+        embed.add_field(name="📋 Description", value=description,         inline=False)
+    if notes:
+        embed.add_field(name="📝 Notes",       value=notes,               inline=False)
     embed.set_footer(text=f"Date: {date.today().isoformat()}")
 
     await interaction.followup.send(embed=embed)
