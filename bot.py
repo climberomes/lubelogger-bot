@@ -140,9 +140,10 @@ async def cars(interaction: discord.Interaction):
 
     embed = discord.Embed(title="🚗  Vehicles in LubeLogger", color=discord.Color.blurple())
     for v in vehicles:
+        label = f"{v.get('year', '')} {v.get('make', '')} {v.get('model', '')}".strip()
         embed.add_field(
-            name=f"[{v['id']}] {v['name']}",
-            value=f"Year: {v.get('year', '—')}  |  Make: {v.get('make', '—')}  |  Model: {v.get('model', '—')}",
+            name=f"[{v['id']}] {label}",
+            value=f"Plate: {v.get('licensePlate', '—')}",
             inline=False,
         )
     await interaction.followup.send(embed=embed)
