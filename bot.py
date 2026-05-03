@@ -39,6 +39,7 @@ async def add_gas_record(vehicle_id: int, mileage: int, gallons: float,
                          cost: float, location: str) -> dict:
     """POST a new fuel-up record to LubeLogger."""
     payload = {
+        "vehicleId": vehicle_id,
         "date": date.today().isoformat(),   # YYYY-MM-DD
         "mileage": mileage,
         "gallons": gallons,
@@ -50,7 +51,7 @@ async def add_gas_record(vehicle_id: int, mileage: int, gallons: float,
     }
     async with aiohttp.ClientSession(headers=lubelogger_headers()) as session:
         async with session.post(
-            f"{LUBELOGGER_URL}/api/vehicles/{vehicle_id}/gasrecords",
+            f"{LUBELOGGER_URL}/api/vehicle/gasrecords/add",
             json=payload,
         ) as resp:
             resp.raise_for_status()
